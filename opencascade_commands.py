@@ -32,3 +32,10 @@ def boolean_intersection(self):
 @occ_operation("Boolean Difference")
 def boolean_difference(self):
     return self.boolean_op('Cut')
+
+@occ_operation("Reload Addon")
+def reload_plugin(self, name='blenderocc'):
+    import addon_utils
+    addon_utils.disable(name)
+    addon_utils.enable(name)
+    print(name, "addon reloaded")
