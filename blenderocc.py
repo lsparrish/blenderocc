@@ -9,12 +9,8 @@ bl_info = {
 
 import bpy
 import numpy as np
-import json
-from pathlib import Path
-import inspect
-import pkgutil
+import os
 from functools import wraps
-
 
 def occ_operation(name):
     def decorator(func):
@@ -54,15 +50,6 @@ class OCCWrapper:
             bpy.context.scene.collection.objects.link(obj)
             return obj
         return shape
-        
-    def execute(self, operation, *shapes):
-        try:
-            result = getattr(self.get_module('BRepAlgoAPI'), f'BRepAlgoAPI_{operation}')(*shapes)
-            result.Build()
-            if result.IsDone():
-                return result.Shape()
-        except:
-            return None
 
 class OCCUtils:
     @staticmethod
@@ -75,6 +62,7 @@ class OCCUtils:
             except ImportError as e:
                 raise ImportError(f"Failed to import {module}: {e}")
         return results
+
     @staticmethod
     def mesh_to_points(obj):
         mesh = obj.data.copy()
@@ -116,25 +104,6 @@ class OCCUtils:
         
         return result
 
-
-    @staticmethod
-    def execute_operation(op_class, *args):
-        try:
-            module_name = op_class.__module__.split('.')[-1]
-            exec(f"from OCC.Core import {module_name}")
-            module = eval(module_name)
-            
-            operation = getattr(module, op_class.__name__)(*args)
-            operation.Build()
-            
-            if operation.IsDone():
-                return operation.Shape()
-            return None
-            
-        except Exception as e:
-            print(f"Operation failed: {str(e)}")
-            return None
-
     @staticmethod
     def shape_to_mesh(shape, name="OCCMesh"):
         oc = OCCUtils.import_occ('BRepMesh', 'TopAbs', 'TopLoc', 'TopExp', 'TopoDS', 'BRep')
@@ -163,65 +132,6 @@ class OCCUtils:
         mesh.from_pydata(verts, [], faces)
         mesh.update()
         return mesh
-
-
-class OCCOperator(bpy.types.Operator):
-    bl_idname = "occ.operator"
-    bl_label = "OCC Operation"
-    
-    operation: bpy.props.StringProperty()
-    preview_mode: bpy.props.BoolProperty(default=False)
-    
-    @classmethod 
-    def poll(cls, context):
-        if context.active_operator and hasattr(context.active_operator, 'operation'):
-            return False
-        if len(context.selected_objects) != 2:
-            return False
-        return all(o.type == 'MESH' for o in context.selected_objects)
-        
-    def execute(self, context):
-        props = context.scene.occ_props
-        obj1, obj2 = context.selected_objects
-        try:
-            wrapper = OCCWrapper()
-            shape1 = wrapper.get_shape(obj1)
-            shape2 = wrapper.get_shape(obj2)
-            
-            ops = {
-                'UNION': 'Fuse',
-                'DIFFERENCE': 'Cut', 
-                'INTERSECTION': 'Common'
-            }
-            
-            result_shape = wrapper.execute(ops[props.boolean_type], shape1, shape2)
-            if result_shape:
-                name = "Preview" if self.preview_mode else f"Boolean_{props.boolean_type}"
-                result_mesh = wrapper.create_mesh(result_shape, name)
-                
-                if self.preview_mode:
-                    if "Boolean_Preview" in bpy.data.objects:
-                        prev_obj = bpy.data.objects["Boolean_Preview"]
-                        prev_obj.data = result_mesh
-                    else:
-                        prev_obj = bpy.data.objects.new("Boolean_Preview", result_mesh)
-                        context.scene.collection.objects.link(prev_obj)
-                        prev_obj.display_type = 'WIRE'
-                else:
-                    result_obj = bpy.data.objects.new(result_mesh.name, result_mesh)
-                    context.scene.collection.objects.link(result_obj)
-                    
-                    if "Boolean_Preview" in bpy.data.objects:
-                        bpy.data.objects.remove(bpy.data.objects["Boolean_Preview"], do_unlink=True)
-                    
-                    for obj in (obj1, obj2):
-                        bpy.data.objects.remove(obj, do_unlink=True)
-                        
-                return {'FINISHED'}
-                    
-        except Exception as e:
-            self.report({'ERROR'}, f"Boolean operation failed: {str(e)}")
-            return {'CANCELLED'}
 
 class OCCSVGOperator(bpy.types.Operator):
     bl_idname = "occ.svg"
@@ -266,7 +176,7 @@ class OCCCustomOperator(bpy.types.Operator):
     operation: bpy.props.StringProperty()
     
     def execute(self, context):
-        text_name = "Custom Operations"
+        text_name = "opencascade_commands.py"
         if text_name not in bpy.data.texts:
             self.report({'ERROR'}, "Click Edit Code first")
             return {'CANCELLED'}
@@ -304,15 +214,37 @@ class OCCEditOperator(bpy.types.Operator):
     bl_idname = "occ.edit_code"
     bl_label = "Edit Code"
     
-    def execute(self, context):
-        text_name = "Custom Operations"
-        if text_name not in bpy.data.texts:
-            bpy.data.texts.new(text_name)
-            
+    TEXT_NAME = "opencascade_commands.py"
+    
+    @staticmethod
+    def get_template_path():
+        """Get the path to the module file"""
+        return os.path.dirname(os.path.realpath(__file__))
+    
+    def create_text_if_needed(self):
+        """Create text data block if needed"""
+        if self.TEXT_NAME not in bpy.data.texts:
+            text = bpy.data.texts.new(self.TEXT_NAME)
+            template_path = self.get_template_path()
+            print(template_path)
+            with open(os.path.join(template_path, self.TEXT_NAME), 'r') as f:
+                template_content = f.read()
+            if template_content:
+                text.write(template_content)
+        return bpy.data.texts[self.TEXT_NAME]
+    
+    def create_text_editor(self, context):
+        """Create new text editor area"""
         bpy.ops.screen.area_dupli('INVOKE_DEFAULT')
-        area = context.window_manager.windows[-1].screen.areas[0]
+        window = context.window_manager.windows[-1]
+        area = window.screen.areas[0]
         area.type = 'TEXT_EDITOR'
-        area.spaces[0].text = bpy.data.texts[text_name]
+        return area
+    
+    def execute(self, context):
+        text = self.create_text_if_needed()
+        area = self.create_text_editor(context)
+        area.spaces[0].text = text
         return {'FINISHED'}
 
 class VIEW3D_PT_OCCTools(bpy.types.Panel):
@@ -323,49 +255,20 @@ class VIEW3D_PT_OCCTools(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        props = context.scene.occ_props
         
+        # Built-in Operations
         box = layout.box()
-        box.label(text="Export")
+        box.label(text="Built-in Operations")
         box.operator("occ.svg", text="Copy SVG")
         
+        # Custom Operations
         box = layout.box()
-        box.label(text="Boolean Operations")
-        
-        if len(context.selected_objects) == 2:
-            obj1, obj2 = context.selected_objects
-            box.label(text=f"Target: {obj1.name}")
-            box.label(text=f"Tool: {obj2.name}")
-            box.operator("occ.operator", text="Preview", icon='HIDE_OFF').preview_mode = True
-        else:
-            box.label(text="Select two mesh objects", icon='INFO')
-            
-        box.prop(props, "boolean_type")
-        row = box.row()
-        op = row.operator("occ.operator", text="Execute Boolean", icon='PLAY')
-        op.operation = 'BOOLEAN'
-        op.preview_mode = False
-
-class VIEW3D_PT_OCCCustom(bpy.types.Panel):
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "OCC Tools"
-    bl_label = "Custom Code"
-    bl_options = {'DEFAULT_CLOSED'}
-
-    @classmethod
-    def poll(cls, context):
-        return True
-
-    def draw(self, context):
-        layout = self.layout
-        box = layout.box()
-        
+        box.label(text="opencascade_commands.py")
         row = box.row()
         row.operator("occ.edit_code", text="Edit Code", icon='TEXT')
         row.operator("occ.custom", text="Execute Code", icon='PLAY')
         
-        text_name = "Custom Operations"
+        text_name = "opencascade_commands.py"
         if text_name in bpy.data.texts:
             text = bpy.data.texts[text_name]
             code = text.as_string()
@@ -381,31 +284,17 @@ class VIEW3D_PT_OCCCustom(bpy.types.Panel):
             except:
                 pass
 
-class OCCProperties(bpy.types.PropertyGroup):
-    boolean_type: bpy.props.EnumProperty(
-        name="Operation",
-        items=[('UNION', "Union", "Combine objects"),
-               ('DIFFERENCE', "Difference", "Subtract second object"),
-               ('INTERSECTION', "Intersection", "Keep overlap")],
-        default='UNION'
-    )
-
 classes = [
-    OCCProperties,
-    OCCOperator,
     OCCSVGOperator,
     OCCCustomOperator,
     OCCEditOperator,
-    VIEW3D_PT_OCCTools,
-    VIEW3D_PT_OCCCustom
+    VIEW3D_PT_OCCTools
 ]
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    bpy.types.Scene.occ_props = bpy.props.PointerProperty(type=OCCProperties)
 
 def unregister():
-    del bpy.types.Scene.occ_props
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
