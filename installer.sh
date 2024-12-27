@@ -19,7 +19,8 @@ sudo apt-get install -y \
     git \
     python3-pip \
     libpcre2-dev
-# Move the EOF down as needed if you have to rerun the script to avoid repeatedly downloading stuff.
+# Move the EOF down as needed if you have to rerun the script to avoid repeatedly downloading stuff or up to install dependencies
+EOF
 mkdir -p filesneeded
 
 cd filesneeded
@@ -88,7 +89,6 @@ echo "Otherwise, use this to add to your ldconfig:"
 echo "sudo echo $SCRIPTDIR/lib/occt/lib/>ld.so.conf.d/occt.conf && sudo ldconfig"
 echo "(pythonocc-core is just a python wrapper for OCCT, so it needs access to the OCCT libs.)"
 
-EOF
 
 cat << EOF > addoninstaller.py
 import bpy
