@@ -30,3 +30,12 @@ This is a blender addon that lets you define customizable buttons. It consists o
 For rapid development of the addon, after installing it in blender, you can remove the file from the addons folder and replace it with a symbolic link. 
 To make it active, disable and reenable the addon.
 
+The addon is mostly written with the assistance of Anthropic's Claude.
+
+TODO
+===
+
+- Save function (currently just opens a window to view the code)
+- Add an LLM interface to generate functions?
+- Better grouping so custom code is not all one big file
+- More impressive functions to show off what OpenCascade can do?
