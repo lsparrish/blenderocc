@@ -79,7 +79,9 @@ cd $SCRIPTDIR
 mkdir -p app
 cd app
 tar -Jxvf ../filesneeded/blender-app.tar.xz && mv blender-4.3.2-linux-x64 blender-app
-mkdir blender-app/portable
+mkdir -p blender-app/portable
+mkdir -p portable/scripts/extensions/blender_org
+mkdir -p portable/scripts/extensions/user_default
 ln -s $SCRIPTDIR/blenderocc.py portable/scripts/addons/
 cd ..
 ln -s $SCRIPTDIR/lib/pythonocc/ $SCRIPTDIR/app/blender-app/4.3/python/lib/python3.11/OCC
