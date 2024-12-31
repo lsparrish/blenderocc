@@ -133,42 +133,6 @@ class OCCUtils:
         mesh.update()
         return mesh
 
-class OCCSVGOperator(bpy.types.Operator):
-    bl_idname = "occ.svg"
-    bl_label = "Export SVG"
-    
-    @classmethod
-    def poll(cls, context):
-        return context.active_object and context.active_object.type == 'MESH'
-        
-    def execute(self, context):
-        obj = context.active_object
-        mesh = obj.data.copy()
-        mesh.transform(obj.matrix_world)
-        
-        def iso_project(v):
-            x,y,z = v.co
-            a, b = 0.866025, 0.5
-            return (x * a - y * a, x * b + y * b - z)
-        
-        points = [iso_project(v) for v in mesh.vertices]
-        bounds = {'x': [p[0] for p in points], 'y': [p[1] for p in points]}
-        margin = max(max(b) - min(b) for b in bounds.values()) * 0.1
-        
-        svg = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{min(bounds["x"])-margin} {min(bounds["y"])-margin} {max(bounds["x"])-min(bounds["x"])+2*margin} {max(bounds["y"])-min(bounds["y"])+2*margin}">']
-        
-        for face in sorted(mesh.polygons, key=lambda f: f.normal.z):
-            path = [f"{points[i][0]},{points[i][1]}" for i in face.vertices]
-            color = ["#808080","#a0a0a0","#d0d0d0"][int((face.normal.z+1)*1.499)]
-            svg.append(f'<path d="M {path[0]} L {" L ".join(path[1:])} Z" fill="{color}" stroke="none"/>')
-        
-        svg.append('</svg>')
-        context.window_manager.clipboard = '\n'.join(svg)
-        bpy.data.meshes.remove(mesh)
-        self.report({'INFO'}, "SVG copied to clipboard")
-            
-        return {'FINISHED'}
-
 class OCCCustomOperator(bpy.types.Operator):
     bl_idname = "occ.custom"
     bl_label = "Execute Custom"
@@ -176,9 +140,9 @@ class OCCCustomOperator(bpy.types.Operator):
     operation: bpy.props.StringProperty()
     
     def execute(self, context):
-        text_name = "opencascade_commands.py"
+        text_name = "custom_commands.py"
         if text_name not in bpy.data.texts:
-            self.report({'ERROR'}, "Click Edit Code first")
+            self.report({'ERROR'}, "Click Custom Code first")
             return {'CANCELLED'}
             
         text = bpy.data.texts[text_name]
@@ -214,7 +178,7 @@ class OCCEditOperator(bpy.types.Operator):
     bl_idname = "occ.edit_code"
     bl_label = "Edit Code"
     
-    TEXT_NAME = "opencascade_commands.py"
+    TEXT_NAME = "custom_commands.py"
     
     @staticmethod
     def get_template_path():
@@ -256,19 +220,10 @@ class VIEW3D_PT_OCCTools(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         
-        # Built-in Operations
         box = layout.box()
-        box.label(text="Built-in Operations")
-        box.operator("occ.svg", text="Copy SVG")
-        
-        # Custom Operations
-        box = layout.box()
-        box.label(text="opencascade_commands.py")
         row = box.row()
-        row.operator("occ.edit_code", text="Edit Code", icon='TEXT')
-        row.operator("occ.custom", text="Execute Code", icon='PLAY')
-        
-        text_name = "opencascade_commands.py"
+        row.operator("occ.edit_code", text="Custom Code", icon='TEXT')
+        text_name = "custom_commands.py"
         if text_name in bpy.data.texts:
             text = bpy.data.texts[text_name]
             code = text.as_string()
@@ -285,7 +240,6 @@ class VIEW3D_PT_OCCTools(bpy.types.Panel):
                 pass
 
 classes = [
-    OCCSVGOperator,
     OCCCustomOperator,
     OCCEditOperator,
     VIEW3D_PT_OCCTools

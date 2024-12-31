@@ -13,7 +13,7 @@ curl -X POST 'https://api.anthropic.com/v1/messages' \
   --arg p3 "$(cat blenderocc.py)" \
   --arg p4 "$(echo $INPUT_PROMPT)" \
     '{
-      model: "claude-3-sonnet-20240229",
+      model: "claude-3-sonnet-20241022",
       max_tokens: 512,
       system: "You are a CAD expert specializing in OpenCascade and Blender integration. Focus on providing practical solutions and code examples.",
       messages: [

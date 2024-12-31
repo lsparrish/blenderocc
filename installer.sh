@@ -79,9 +79,11 @@ cd $SCRIPTDIR
 mkdir -p app
 cd app
 tar -Jxvf ../filesneeded/blender-app.tar.xz && mv blender-4.3.2-linux-x64 blender-app
+mkdir blender-app/portable
+ln -s $SCRIPTDIR/blenderocc.py portable/scripts/addons/
 cd ..
-
 ln -s $SCRIPTDIR/lib/pythonocc/ $SCRIPTDIR/app/blender-app/4.3/python/lib/python3.11/OCC
+LD_LIBRARY_PATH=$SCRIPTDIR/lib/occt/lib/ ./app/blender-app/blender --background --python-expr "import bpy;bpy.ops.preferences.addon_enable(module='blenderocc')"
 echo "LD_LIBRARY_PATH=$SCRIPTDIR/lib/occt/lib/ ./app/blender-app/blender">./blender.sh
 chmod +x blender.sh
 echo "to run, use ./blender.sh"
@@ -89,10 +91,3 @@ echo "Otherwise, use this to add to your ldconfig:"
 echo "sudo echo $SCRIPTDIR/lib/occt/lib/>ld.so.conf.d/occt.conf && sudo ldconfig"
 echo "(pythonocc-core is just a python wrapper for OCCT, so it needs access to the OCCT libs.)"
 
-
-cat << EOF > addoninstaller.py
-import bpy
-bpy.ops.preferences.addon_install(filepath="$SCRIPTDIR/blenderocc.py")
-bpy.ops.preferences.addon_enable(module='blenderocc')
-EOF
-echo "to install the blender occ addon use ./addoninstaller.py"
