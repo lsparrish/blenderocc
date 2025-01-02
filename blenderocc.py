@@ -182,15 +182,14 @@ class OCCEditOperator(bpy.types.Operator):
     
     @staticmethod
     def get_template_path():
-        """Get the path to the module file"""
-        return os.path.dirname(os.path.realpath(__file__))
+        """Get the path to the project directory using PWD environment variable"""
+        return os.environ['PWD']
     
     def create_text_if_needed(self):
         """Create text data block if needed"""
         if self.TEXT_NAME not in bpy.data.texts:
             text = bpy.data.texts.new(self.TEXT_NAME)
             template_path = self.get_template_path()
-            print(template_path)
             with open(os.path.join(template_path, self.TEXT_NAME), 'r') as f:
                 template_content = f.read()
             if template_content:
