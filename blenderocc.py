@@ -50,6 +50,9 @@ class OCCWrapper:
             bpy.context.scene.collection.objects.link(obj)
             return obj
         return shape
+    text_name='custom_commands.py'
+    def switch_to_text(text_name='custom_commands.py'):
+        return OCCUtils.switch_to_text(text_name)
 
 class OCCUtils:
     @staticmethod
@@ -133,12 +136,22 @@ class OCCUtils:
         mesh.update()
         return mesh
 
+    @staticmethod
+    def switch_to_text(text_name):
+        """Helper function to switch to a text in the text editor"""
+        def switch():
+            for area in bpy.context.screen.areas:
+                if area.type == 'TEXT_EDITOR':
+                    for space in area.spaces:
+                        if space.type == 'TEXT_EDITOR':
+                            space.text = bpy.data.texts[text_name]
+        bpy.app.timers.register(switch, first_interval=0.01)
+
 class OCCCustomOperator(bpy.types.Operator):
     bl_idname = "occ.custom"
     bl_label = "Execute Custom"
-    
+    message: bpy.props.StringProperty(default="")
     operation: bpy.props.StringProperty()
-    
     def execute(self, context):
         text_name = "custom_commands.py"
         if text_name not in bpy.data.texts:
@@ -178,37 +191,85 @@ class OCCEditOperator(bpy.types.Operator):
     bl_idname = "occ.edit_code"
     bl_label = "Edit Code"
     
-    TEXT_NAME = "custom_commands.py"
+    text_name = "custom_commands.py"
+    save_only: bpy.props.BoolProperty(default=False)
     
     @staticmethod
     def get_template_path():
-        """Get the path to the project directory using PWD environment variable"""
         return os.environ['PWD']
     
     def create_text_if_needed(self):
-        """Create text data block if needed"""
-        if self.TEXT_NAME not in bpy.data.texts:
-            text = bpy.data.texts.new(self.TEXT_NAME)
+        if self.text_name not in bpy.data.texts:
+            text = bpy.data.texts.new(self.text_name)
             template_path = self.get_template_path()
-            with open(os.path.join(template_path, self.TEXT_NAME), 'r') as f:
+            with open(os.path.join(template_path, self.text_name), 'r') as f:
                 template_content = f.read()
             if template_content:
                 text.write(template_content)
-        return bpy.data.texts[self.TEXT_NAME]
-    
-    def create_text_editor(self, context):
-        """Create new text editor area"""
-        bpy.ops.screen.area_dupli('INVOKE_DEFAULT')
-        window = context.window_manager.windows[-1]
-        area = window.screen.areas[0]
-        area.type = 'TEXT_EDITOR'
-        return area
+        return self.text_name
+
+    def create_text_workspace(self, context):
+        def setup_workspace():
+            bpy.context.window_manager.windows[0].workspace = bpy.data.workspaces['Layout']
+            new_ws = bpy.context.workspace
+            new_ws.name = 'OCC Text'
+            screen = new_ws.screens[0]
+            screen.rename('OCC Text')
+            for area in screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.ui_type = 'TEXT_EDITOR'
+                    for space in area.spaces:
+                        if space.type == 'TEXT_EDITOR':
+                            space.text = bpy.data.texts[OCCEditOperator.text_name]
+            return None
+
+        def duplicate_workspace():
+            bpy.ops.workspace.duplicate()
+            bpy.app.timers.register(setup_workspace, first_interval=0.01)
+            return None
+
+        if "OCC Text" not in bpy.data.workspaces:
+            bpy.app.timers.register(duplicate_workspace, first_interval=0.01)
+        return True
+ 
+    def save_text_as_py(self, context):
+        """Save current text as .py file"""
+        text = bpy.data.texts.get(self.text_name)
+        if text:
+            filepath = os.path.join(self.get_template_path(), self.text_name)
+            with open(filepath, 'w') as f:
+                f.write(text.as_string())
+            self.report({'INFO'}, f"Saved to {filepath}")
+        return {'FINISHED'}
+
+    def draw_button(self, context):
+        self.layout.operator(
+            "occ.edit_code",
+            text="Save File",
+            icon='FILE_TICK'
+        ).save_only = True
+
+    @classmethod
+    def register_button(cls):
+        bpy.types.TEXT_HT_header.append(cls.draw_button)
+
+    @classmethod
+    def unregister_button(cls):
+        bpy.types.TEXT_HT_header.remove(cls.draw_button)
     
     def execute(self, context):
-        text = self.create_text_if_needed()
-        area = self.create_text_editor(context)
-        area.spaces[0].text = text
-        return {'FINISHED'}
+        if self.save_only:
+            return self.save_text_as_py(context)
+        text_name = self.create_text_if_needed()
+        OCCUtils.switch_to_text(text_name)
+        if "OCC Text" in bpy.data.workspaces:
+            context.window.workspace = bpy.data.workspaces["OCC Text"]
+            if context.window.workspace == bpy.data.workspaces.get("OCC Text"):
+                return self.save_text_as_py(context)
+            return {'FINISHED'}
+        if self.create_text_workspace(context):
+            return {'FINISHED'}
+        return {'CANCELLED'}
 
 class VIEW3D_PT_OCCTools(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
@@ -218,7 +279,7 @@ class VIEW3D_PT_OCCTools(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        
+
         box = layout.box()
         row = box.row()
         row.operator("occ.edit_code", text="Custom Code", icon='TEXT')
@@ -226,15 +287,18 @@ class VIEW3D_PT_OCCTools(bpy.types.Panel):
         if text_name in bpy.data.texts:
             text = bpy.data.texts[text_name]
             code = text.as_string()
-            
+
             try:
                 loc = {}
                 exec(code, globals(), loc)
-                
                 for name, func in loc.items():
                     if hasattr(func, 'is_occ_op'):
                         op = box.operator("occ.custom", text=func.op_name)
                         op.operation = name
+                        if name == 'call_ai':
+                            op.message = context.scene.get('ai_message', '')
+                            row = box.row()
+                            row.prop(context.scene, "ai_message", text="AI")
             except:
                 pass
 
@@ -247,7 +311,19 @@ classes = [
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
+    OCCEditOperator.register_button()
+    bpy.types.Scene.ai_message = bpy.props.StringProperty(
+        name="AI Message",
+        description="Message to send to AI",
+        default=""
+    )
+    bpy.app.timers.register(
+        lambda: bpy.ops.occ.edit_code() and None,
+        first_interval=0.1
+    )
 
 def unregister():
+    OCCEditOperator.unregister_button()
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+    del bpy.types.Scene.ai_message

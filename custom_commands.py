@@ -3,6 +3,7 @@ def boolean_op(self, operation):
     Takes 2 selected blender objects and make BRep shapes,
     then calls an algorithm based on the passed operation string."""
     if len(bpy.context.selected_objects) != 2:
+        self.report({'ERROR'}, "Select exactly 2 objects for boolean operations")
         return None
     obj1, obj2 = bpy.context.selected_objects
     shape1 = self.get_shape(obj1)
@@ -12,6 +13,7 @@ def boolean_op(self, operation):
     op.Build()
     if op.IsDone():
         return op.Shape()
+    self.report({'ERROR'}, f"Boolean {operation} operation failed")
     return None
 OCCWrapper.boolean_op = boolean_op
 
@@ -61,4 +63,32 @@ def export_svg(self):
     svg.append('</svg>')
     bpy.context.window_manager.clipboard = '\n'.join(svg)
     bpy.data.meshes.remove(mesh)
+    return None
+
+@occ_operation("Rotate 90°")
+def rotate_90(self):
+    obj = bpy.context.active_object
+    if not obj:
+        return None
+    shape = self.get_shape(obj)
+    gp = self.get_module('gp')
+    BRepBuilderAPI = self.get_module('BRepBuilderAPI')
+    angle = np.pi/2
+    transform = gp.gp_Trsf()
+    transform.SetRotation(gp.gp_Ax1(gp.gp_Pnt(0,0,0), gp.gp_Dir(0,0,1)), angle)
+    return BRepBuilderAPI.BRepBuilderAPI_Transform(shape, transform).Shape()
+
+@occ_operation('Call AI')
+def call_ai(self, message=bpy.context.scene.ai_message):
+    import subprocess
+    from datetime import datetime
+    result = subprocess.check_output(['bash', 'ai.sh', message], text=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    self.text_name = f"ai_response_{timestamp}.txt"
+    bpy.data.texts.new(self.text_name).write(result)
+    def switch_to_workspace():
+        bpy.context.window.workspace = bpy.data.workspaces["OCC Text"]
+        bpy.app.timers.register(lambda: OCCWrapper.switch_to_text(self.text_name), first_interval=0.01)
+    bpy.app.timers.register(switch_to_workspace, first_interval=0.01)
+    bpy.context.window_manager.clipboard = result
     return None
