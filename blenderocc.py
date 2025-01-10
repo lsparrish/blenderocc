@@ -152,6 +152,20 @@ class OCCCustomOperator(bpy.types.Operator):
     bl_label = "Execute Custom"
     message: bpy.props.StringProperty(default="")
     operation: bpy.props.StringProperty()
+    @classmethod
+    def description(cls, context, properties):
+        """Show docstring of the operation as a tooltip"""
+        if properties.operation:
+            text = bpy.data.texts.get("custom_commands.py")
+            if text:
+                try:
+                    loc = {}
+                    exec(text.as_string(), globals(), loc)
+                    if properties.operation in loc:
+                        return loc[properties.operation].__doc__ or "No description available"
+                except:
+                    pass
+        return "Execute custom OpenCASCADE operation"
     def execute(self, context):
         text_name = "custom_commands.py"
         if text_name not in bpy.data.texts:
@@ -232,50 +246,63 @@ class OCCEditOperator(bpy.types.Operator):
             bpy.app.timers.register(duplicate_workspace, first_interval=0.01)
         return True
  
-    def save_text_as_py(self, context):
-        """Save current text as .py file"""
-        text = bpy.data.texts.get(self.text_name)
-        if text:
-            filepath = os.path.join(self.get_template_path(), self.text_name)
-            with open(filepath, 'w') as f:
-                f.write(text.as_string())
-            self.report({'INFO'}, f"Saved to {filepath}")
-        return {'FINISHED'}
+    def save_text_as_file(self, context):
+        """Save current text to a file"""
+        for area in context.screen.areas:
+            if area.type == 'TEXT_EDITOR':
+                text = area.spaces[0].text
+                if text:
+                    filepath = os.path.join(self.get_template_path(), text.name)
+                    with open(filepath, 'w') as f:
+                        f.write(text.as_string())
+                    self.report({'INFO'}, f"Saved to {filepath}")
+                    return {'FINISHED'}
+        return {'CANCELLED'}
 
-    def draw_button(self, context):
-        self.layout.operator(
-            "occ.edit_code",
-            text="Save File",
-            icon='FILE_TICK'
-        ).save_only = True
-
-    @classmethod
-    def register_button(cls):
-        bpy.types.TEXT_HT_header.append(cls.draw_button)
-
-    @classmethod
-    def unregister_button(cls):
-        bpy.types.TEXT_HT_header.remove(cls.draw_button)
-    
     def execute(self, context):
         if self.save_only:
-            return self.save_text_as_py(context)
+            return self.save_text_as_file(context)
         text_name = self.create_text_if_needed()
         OCCUtils.switch_to_text(text_name)
         if "OCC Text" in bpy.data.workspaces:
             context.window.workspace = bpy.data.workspaces["OCC Text"]
             if context.window.workspace == bpy.data.workspaces.get("OCC Text"):
-                return self.save_text_as_py(context)
+                return self.save_text_as_file(context)
             return {'FINISHED'}
         if self.create_text_workspace(context):
             return {'FINISHED'}
         return {'CANCELLED'}
 
+class TextSwitchOperator(bpy.types.Operator):
+    bl_idname = "text.switch"
+    bl_label = "Switch Text"
+    text_name: bpy.props.StringProperty()
+    @classmethod
+    def poll(cls, context):
+        return (context.area.type == 'TEXT_EDITOR' 
+                and len(bpy.data.texts) > 0 
+                and context.space_data.text)
+    def execute(self, context):
+        current = context.space_data.text
+        texts = list(bpy.data.texts)
+        if not texts:
+            return {'CANCELLED'}
+        idx = texts.index(current) if current in texts else -1
+        next_text = texts[(idx + 1) % len(texts)]
+        
+        # Split the area vertically and switch text
+        override = context.copy()
+        override['area'] = context.area
+        bpy.ops.screen.area_split(override, direction='VERTICAL', factor=0.5)
+        OCCUtils.switch_to_text(next_text.name)
+        return {'FINISHED'}
+
 class VIEW3D_PT_OCCTools(bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_OCCTools"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "OCC Tools"
-    bl_label = "CAD Operations"
+    bl_label = "BlenderOCC Operations"
 
     def draw(self, context):
         layout = self.layout
@@ -293,37 +320,113 @@ class VIEW3D_PT_OCCTools(bpy.types.Panel):
                 exec(code, globals(), loc)
                 for name, func in loc.items():
                     if hasattr(func, 'is_occ_op'):
-                        op = box.operator("occ.custom", text=func.op_name)
-                        op.operation = name
                         if name == 'call_ai':
-                            op.message = context.scene.get('ai_message', '')
-                            row = box.row()
-                            row.prop(context.scene, "ai_message", text="AI")
-            except:
-                pass
+                            submenu = layout.column()
+                            submenu.popover(panel="TEXT_PT_ai_panel", text=func.op_name)
+                        else:
+                            op = layout.operator("occ.custom", text=func.op_name)
+                            op.operation = name
+            except Exception as e:
+                layout.label(text=f"Error: {str(e)}")
+
+class TEXT_MT_occ_menu(bpy.types.Menu):
+    bl_idname = "TEXT_MT_occ_menu"
+    bl_label = "BlenderOCC"
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("occ.edit_code", text="Custom Code", icon='TEXT')
+        layout.operator("occ.edit_code", text="Save To File", icon='FILE_TICK').save_only = True
+        layout.separator()
+        layout.menu("TEXT_MT_occ_switch_menu", text="Switch Text")
+        text = bpy.data.texts.get("custom_commands.py")
+        if text:
+            try:
+                code = text.as_string()
+                wrapper = OCCWrapper()
+                loc = {'wrapper': wrapper}
+                exec(code, globals(), loc)
+                for name, func in loc.items():
+                    if hasattr(func, 'is_occ_op'):
+                        if name == 'call_ai':
+                            submenu = layout.column()
+                            submenu.popover(panel="TEXT_PT_ai_panel", text=func.op_name)
+                        else:
+                            op = layout.operator("occ.custom", text=func.op_name)
+                            op.operation = name
+            except Exception as e:
+                layout.label(text=f"Error: {str(e)}")
+
+class TEXT_PT_ai_panel(bpy.types.Panel):
+    bl_label = "AI Message"
+    bl_space_type = 'TEXT_EDITOR'
+    bl_region_type = 'UI'
+    bl_options = {'INSTANCED'}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(context.scene, "ai_message", text="")
+        op = layout.operator("occ.custom", text="Send")
+        op.operation = "call_ai"
+
+class TEXT_MT_occ_switch_menu(bpy.types.Menu):
+    bl_idname = "TEXT_MT_occ_switch_menu"
+    bl_label = "Switch Text"
+    
+    def draw(self, context):
+        layout = self.layout
+        for text in bpy.data.texts:
+            op = layout.operator("text.switch", text=text.name)
+            op.text_name = text.name
+
+class TextSwitchOperator(bpy.types.Operator):
+    bl_idname = "text.switch"
+    bl_label = "Switch Text"
+    text_name: bpy.props.StringProperty()
+    
+    def execute(self, context):
+        OCCUtils.switch_to_text(self.text_name)
+        return {'FINISHED'}
 
 classes = [
     OCCCustomOperator,
     OCCEditOperator,
-    VIEW3D_PT_OCCTools
+    VIEW3D_PT_OCCTools,
+    TEXT_MT_occ_menu,
+    TEXT_MT_occ_switch_menu,
+    TEXT_PT_ai_panel,
+    TextSwitchOperator
 ]
+
+addon_keymaps = []
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    OCCEditOperator.register_button()
     bpy.types.Scene.ai_message = bpy.props.StringProperty(
         name="AI Message",
-        description="Message to send to AI",
-        default=""
+        description="Enter your question or request for the AI assistant",
+        default="",
+        options={'TEXTEDIT_UPDATE'}
     )
-    bpy.app.timers.register(
-        lambda: bpy.ops.occ.edit_code() and None,
-        first_interval=0.1
-    )
+    def draw_occ_menu(self, context):
+        self.layout.menu("TEXT_MT_occ_menu")
+    global menu_func
+    menu_func = draw_occ_menu
+    bpy.types.TEXT_MT_editor_menus.append(menu_func)
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.addon
+    if kc:
+        km = kc.keymaps.new(name='Text', space_type='TEXT_EDITOR')
+        kmi = km.keymap_items.new(TextSwitchOperator.bl_idname, type='RIGHT_BRACKET', value='PRESS', ctrl=True)
+        addon_keymaps.append((km, kmi))
+    
 
 def unregister():
-    OCCEditOperator.unregister_button()
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
     del bpy.types.Scene.ai_message
+    bpy.types.TEXT_MT_editor_menus.remove(menu_func)
+    for km, kmi in addon_keymaps:
+        km.keymap_items.remove(kmi)
+    addon

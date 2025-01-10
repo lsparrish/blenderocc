@@ -1,9 +1,7 @@
 export INPUT_PROMPT=$1
 [[ -z $INPUT_PROMPT ]] && \
 	export INPUT_PROMPT="Suggest 1 thing to improve the program."
-echo $INPUT_PROMPT
 [[ -z $DEBUG ]] && alias curl='echo' || unalias curl
-#echo << EOF
 curl -X POST 'https://api.anthropic.com/v1/messages' \
   -H "x-api-key: $ANTHROPIC_API_KEY" \
   -H "anthropic-version: 2023-06-01" \
@@ -29,6 +27,3 @@ curl -X POST 'https://api.anthropic.com/v1/messages' \
       ]
      }')"|jq '.' > out.json
 cat out.json | jq -r '.content[0].text'
-#EOF
-
-echo $INPUT_PROMPT

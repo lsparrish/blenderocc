@@ -92,3 +92,15 @@ def call_ai(self, message=bpy.context.scene.ai_message):
     bpy.app.timers.register(switch_to_workspace, first_interval=0.01)
     bpy.context.window_manager.clipboard = result
     return None
+
+@occ_operation("Open Blenderocc Files")
+def open_files(self):
+    filenames = ['custom_commands.py', 'blenderocc.py', 'prompt.txt', 'ai.sh', 'installer.sh']
+    for filename in filenames:
+        if not bpy.data.texts.get(filename):
+            text = bpy.data.texts.new(filename)
+            template_path = OCCEditOperator.get_template_path()
+            with open(os.path.join(template_path, filename), 'r') as f:
+                text.write(f.read())
+        OCCUtils.switch_to_text(filename)
+    return None
